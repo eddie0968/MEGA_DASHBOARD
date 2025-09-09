@@ -571,8 +571,8 @@ with st.sidebar:
 
     
 
-st.markdown("---") # Separator for the main content area
-st.header("業務指標設定")
+# st.markdown("---") # Separator for the main content area
+# st.header("業務指標設定")
 
 # Calculate all_inds based on selected_sub_types (this part is already calculated in the sidebar)
 # all_inds is available here.
@@ -586,7 +586,7 @@ st.header("業務指標設定")
 # Adjust the label for selected_inds multiselect (this part needs to be moved from sidebar)
 sub_type_label = "多種子公司類型" if len(selected_sub_types) > 1 else selected_sub_types[0]
 selected_inds = data_df.columns[1:-1].tolist() # Assign all business indicators, excluding '公司' and '類別'
-sort_by = st.selectbox("公司排序依據", options=['(不排序)'] + selected_inds, index=0, key="global_sort_by")
+# sort_by = st.selectbox("公司排序依據", options=['(不排序)'] + selected_inds, index=0, key="global_sort_by")
 st.markdown("---") # Separator
 
 # 分頁
