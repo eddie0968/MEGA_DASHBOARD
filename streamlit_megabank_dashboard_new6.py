@@ -11,6 +11,31 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
+import base64
+from pathlib import Path
+
+# =========================
+# Logo Utility Function
+# =========================
+@st.cache_data
+def get_logo_data_uri(company_name):
+    """Looks for a logo file, encodes it and returns a base64 data URI."""
+    logo_extensions = ['.png', '.jpg', '.jpeg', '.jfif']
+    # Assume logos are in a 'logos' subdirectory
+    logo_dir = Path('logos')
+    if not logo_dir.is_dir():
+        return None
+    
+    for ext in logo_extensions:
+        logo_file = logo_dir / f"{company_name}{ext}"
+        if logo_file.is_file():
+            try:
+                encoded = base64.b64encode(logo_file.read_bytes()).decode()
+                return f"data:image/{ext.replace('.', '')};base64,{encoded}"
+            except Exception as e:
+                # st.warning(f"Could not read or encode logo for {company_name}: {e}")
+                return None
+    return None
 
 # =========================
 # 資料讀取與清理
@@ -342,7 +367,7 @@ def peer_comparison(bank, target, peers, indicators, category_filter):
         facet_row='指標', # Change to facet_row for vertical stacking
         facet_row_spacing=facet_spacing, # Increase spacing between rows
         height=chart_height, # Use dynamic height
-        title=f"{target} 與自選同業差異比較 (點圖)",
+        title=f"{target} 與所選同業差異比較",
         labels={'差異數': '與兆豐金的差異數'},
         hover_data={'差異數': ':.2f', '公司': True, '指標': True},
         text='公司' # Add company name as text
@@ -387,23 +412,23 @@ def peer_comparison(bank, target, peers, indicators, category_filter):
     )
 
     # 差異表（以 target 為基準）
-    base = bank[bank['公司'] == target][['公司'] + indicators].set_index('公司').iloc[0]
-    diffs = []
-    for p in peers:
-        if p in df_sel['公司'].values:
-            row = df_sel[df_sel['公司'] == p][['公司'] + indicators].set_index('公司').iloc[0]
-            delta = (base - row).to_dict()
-            delta['同業'] = p
-            diffs.append(delta)
-    diff_df = pd.DataFrame(diffs).set_index('同業') if diffs else pd.DataFrame()
+    # base = bank[bank['公司'] == target][['公司'] + indicators].set_index('公司').iloc[0]
+    # diffs = []
+    # for p in peers:
+    #     if p in df_sel['公司'].values:
+    #         row = df_sel[df_sel['公司'] == p][['公司'] + indicators].set_index('公司').iloc[0]
+    #         delta = (base - row).to_dict()
+    #         delta['同業'] = p
+    #         diffs.append(delta)
+    # diff_df = pd.DataFrame(diffs).set_index('同業') if diffs else pd.DataFrame()
 
-    if not diff_df.empty:
-        st.subheader("與同業差異（正值=目標較高，負值=目標較低）")
-        st.dataframe(diff_df.style.background_gradient(cmap='RdYlGn'))
-        csv = diff_df.to_csv().encode('utf-8-sig')
-        st.download_button("下載差異表CSV", data=csv, file_name="peer_diff.csv", mime="text/csv")
+    # if not diff_df.empty:
+    #     st.subheader("與同業差異（正值=目標較高，負值=目標較低）")
+    #     st.dataframe(diff_df.style.background_gradient(cmap='RdYlGn'))
+    #     csv = diff_df.to_csv().encode('utf-8-sig')
+    #     st.download_button("下載差異表CSV", data=csv, file_name="peer_diff.csv", mime="text/csv")
 
-    return fig, diff_df
+    # return fig, diff_df
 
 def group_radar(bank, indicators, peer_metric):
     if len(indicators) < 3:
@@ -590,9 +615,29 @@ selected_inds = data_df.columns[1:-1].tolist() # Assign all business indicators,
 st.markdown("---") # Separator
 
 # 分頁
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["歷年走勢圖", "同業比較全覽", "同業金控比較分析", "公股/民營分組", "業務指標熱力圖"])
+tab1, tab2, tab3, tab4 = st.tabs(["歷年走勢圖", "同業比較全覽", "差異比較分析(雷達圖)", "業務指標熱力圖"])
 
 with tab2:
+    st.subheader("同業金控比較分析")
+    target = '兆豐金' # 預設目標公司為兆豐金
+    peer_candidates = [c for c in data_df['公司'].tolist() if c != '兆豐金']
+    peers = st.multiselect("選擇1~4家同業比較", options=peer_candidates, default=['國泰金', '富邦金', '中信金', '玉山金'][:min(4,len(peer_candidates))], key='peers_selection_tab1')
+
+      # Allow user to select a single indicator if multiple are chosen globally
+    indicators_for_comparison = selected_inds
+    if len(selected_inds) > 1:
+        indicator_to_show = st.selectbox('請選擇一個指標以進行比較', selected_inds, key='tab2_indicator_select')
+        indicators_for_comparison = [indicator_to_show]
+
+    if not indicators_for_comparison:
+        st.warning("請在左側「指標設定」中至少選擇一個指標。\n")
+    else:
+        # The peer_comparison function handles plotting and downloading
+        peer_comparison(data_df, target, peers, indicators_for_comparison, category_filter)
+
+    st.markdown("---")    
+
+
     st.subheader("同業比較全覽")
     if not selected_inds:
         st.warning("請在左側「指標設定」中至少選擇一個指標。\n")
@@ -726,25 +771,7 @@ with tab2:
         #     st.download_button("下載名次熱力圖(HTML)", data=html_bytes_figr, file_name="rank_heatmap.html", mime="text/html", key="dl_rank_heatmap")
 
 with tab3:
-      st.subheader("同業金控比較分析")
-      target = '兆豐金' # 預設目標公司為兆豐金
-      peer_candidates = [c for c in data_df['公司'].tolist() if c != '兆豐金']
-      peers = st.multiselect("選擇1~4家同業比較", options=peer_candidates, default=['國泰金', '富邦金', '中信金', '玉山金'][:min(4,len(peer_candidates))], key='peers_selection_tab1')
-
-      # Allow user to select a single indicator if multiple are chosen globally
-      indicators_for_comparison = selected_inds
-      if len(selected_inds) > 1:
-          indicator_to_show = st.selectbox('請選擇一個指標以進行比較', selected_inds, key='tab2_indicator_select')
-          indicators_for_comparison = [indicator_to_show]
-
-      if not indicators_for_comparison:
-          st.warning("請在左側「指標設定」中至少選擇一個指標。\n")
-      else:
-          # The peer_comparison function handles plotting and downloading
-          peer_comparison(data_df, target, peers, indicators_for_comparison, category_filter)
-
-with tab4:
-    st.subheader("公股/民營分組地位")
+    st.subheader("公股/民營差異雷達圖")
     tab3_radar_indicators = st.multiselect(
         "選擇雷達圖要呈現的業務指標 (至少3個)",
         options=data_df.columns[1:-1].tolist(),
@@ -757,7 +784,7 @@ with tab4:
     else:
         fig_radar = group_radar(data_df, tab3_radar_indicators, peer_metric)
 
-with tab5:
+with tab4:
     st.subheader("業務指標熱力圖")
 
     # Allow user to select indicators for the heatmap
@@ -899,9 +926,13 @@ with tab1:
                                             var_name='年度', 
                                             value_name='ROE')
 
+            # Add rank for dynamic sorting. Rank 1 is highest ROE.
+            df_melted['rank'] = df_melted.groupby('年度')['ROE'].rank(method='first', ascending=False)
+            df_melted['rank'] = df_melted['rank'].astype(int)
+
             # --- START OF LINE CHART BLOCK (MOVED UP) ---
-            st.subheader("歷年變化趨勢")
-            st.write("此圖表顯示各金控歷年變化趨勢。")
+            # st.subheader("歷年變化趨勢")
+            # st.write("此圖表顯示各金控歷年變化趨勢。")
 
             all_companies_for_line_chart = df_melted['公司'].unique().tolist()
             default_selected_companies_for_line_chart = ["中信金", "玉山金", "華南金", "第一金", "兆豐金"]
@@ -914,10 +945,10 @@ with tab1:
             )
 
             if not selected_companies_for_line_chart:
-                st.warning("請至少選擇一家公司。")
+                st.warning("請至少選擇一家公司。\n")
                 df_filtered_companies = pd.DataFrame() # Empty DataFrame to prevent errors
             elif len(selected_companies_for_line_chart) > 6:
-                st.warning("最多只能選擇6家公司。請減少選擇。")
+                st.warning("最多只能選擇6家公司。請減少選擇。\n")
                 df_filtered_companies = df_melted[df_melted['公司'].isin(selected_companies_for_line_chart[:6])] # Use first 6
             else:
                 df_filtered_companies = df_melted[df_melted['公司'].isin(selected_companies_for_line_chart)]
@@ -938,7 +969,7 @@ with tab1:
                 trace.marker = dict(symbol='circle', size=8) # Set marker to thick circle
                 if trace.name == '兆豐金':
                     trace.line.width = 4 # Make line thicker
-                    trace.line.color = '#6F4E37' # Mocha Mousse color
+                    trace.line.color = '#F4B000' # Mocha Mousse color
                 else:
                     trace.line.width = 2 # Default thickness for others
                     trace.line.dash = 'dash' # Dashed line for others
@@ -955,51 +986,174 @@ with tab1:
             )
             # --- END OF LINE CHART BLOCK ---
 
-            # --- START OF BAR CHART BLOCK (MOVED DOWN) ---
-            # Add animation speed slider
-            animation_speed = st.slider("調整動畫速度 (毫秒)", min_value=1000, max_value=2000, value=1500, step=100)
+            # Define a consistent color map for all companies
+            all_companies = df_merged['公司'].unique()
+            company_colors = {
+                '兆豐金': '#F4B000', '富邦金': '#D64550', '國泰金': '#E4572E',
+                '中信金': '#FF7C43', '玉山金': '#FFA600', '元大金': '#9A348E',
+                '台新金': '#6A057F', '新光金': '#F08080', '開發金': '#C70039',
+                '永豐金': '#900C3F', '臺灣金控': '#127C90', '合庫金': '#2BA84A',
+                '第一金': '#005f73', '華南金': '#0a9396'
+            }
+            color_sequence = px.colors.qualitative.Plotly
+            color_idx = 0
+            for company in all_companies:
+                if company not in company_colors:
+                    company_colors[company] = color_sequence[color_idx % len(color_sequence)]
+                    color_idx += 1
+
+                        # --- START OF BAR CHART BLOCK (REBUILT WITH GO.FIGURE) ---
+            st.subheader("歷年走勢圖 (動態排序)")
             
-            # Add bar gap slider for ROE dynamic chart
-            bar_gap_roe = st.slider('調整Bar條間距 (歷年走勢圖)', 0.0, 0.5, 0.05, 0.05)
+            # Re-add the animation speed slider, as it's part of the dynamic chart UI
+            animation_speed = st.slider("調整動畫速度 (毫秒)", min_value=1000, max_value=2000, value=1500, step=100)
+            bar_gap_roe = st.slider('調整Bar條間距 (歷年走勢圖)', 0.0, 0.5, 0.1, 0.05)
 
-            # Create horizontal bar chart
-            fig_roe_dynamic = px.bar(
-                df_melted,
-                x='ROE',
-                y='公司',
-                color='plot_group', # Use plot_group for coloring
-                color_discrete_map={'公股':'#127C90','民營':'#D64550', '兆豐金': '#F4B000'}, # Consistent colors
+            # Sort data by year to ensure correct frame order
+            years = sorted(df_melted['年度'].unique())
+            
+            # --- Create the figure with manual frames ---
+            fig = go.Figure()
+
+            # --- Add data and layout for the first year (initial view) ---
+            initial_year = years[0]
+            initial_df = df_melted[df_melted['年度'] == initial_year].sort_values('rank', ascending=True)
+
+            # Define colors based on category for the initial view
+            initial_colors = []
+            for _, row in initial_df.iterrows():
+                if row['公司'] == '兆豐金':
+                    initial_colors.append('#F4B000')
+                elif row['類別'] == '公股':
+                    initial_colors.append('#127C90')
+                else:
+                    initial_colors.append('#D64550')
+
+            fig.add_trace(go.Bar(
+                x=initial_df['ROE'],
+                y=initial_df['公司'],
                 orientation='h',
-                title='歷年走勢圖', 
-                labels={'ROE': 'ROE (%)', '公司': '公司'},
-                barmode='group', # To group bars by company for each year
-                animation_frame="年度", # Animate by year
-                animation_group="公司", # Group bars by company
-                range_x=[0, df_melted['ROE'].max() * 1.1],
-                height=1000, # Make chart taller
-                text='公司' # Display company name on bars
+                text=initial_df['公司'],
+                textposition='inside',
+                insidetextanchor='middle',
+                marker=dict(
+                    color=initial_colors,
+                    opacity=[0.5 if c != '兆豐金' else 1.0 for c in initial_df['公司']]
+                ),
+                textfont={'color':'white', 'size':16}
+            ))
+
+            # --- Create a frame for each year ---
+            frames = []
+            for year in years:
+                frame_df = df_melted[df_melted['年度'] == year].sort_values('rank', ascending=True)
+                
+                # Create annotations for this frame
+                annotations = []
+                for _, row in frame_df.iterrows():
+                    annotations.append(go.layout.Annotation(
+                        text=f"<b>#{row['rank']}</b>",
+                        align='right', showarrow=False, xref='paper', yref='y',
+                        x=0, y=row['公司'], xanchor='right',
+                        font=dict(color="#4169E1", size=16)
+                    ))
+                
+                # Add year annotation to the bottom right
+                annotations.append(go.layout.Annotation(
+                    text=str(year),
+                    align='right',
+                    showarrow=False,
+                    xref='paper',
+                    yref='paper',
+                    x=0.95,
+                    y=0.05,
+                    xanchor='right',
+                    yanchor='bottom',
+                    font=dict(size=80, color="#4169E1")
+                ))
+                
+                # Define colors based on category for each frame
+                frame_colors = []
+                for _, row in frame_df.iterrows():
+                    if row['公司'] == '兆豐金':
+                        frame_colors.append('#F4B000')
+                    elif row['類別'] == '公股':
+                        frame_colors.append('#127C90')
+                    else:
+                        frame_colors.append('#D64550')
+
+                frames.append(go.Frame(
+                    name=str(year),
+                    data=[go.Bar(
+                        x=frame_df['ROE'],
+                        y=frame_df['公司'],
+                        orientation='h',
+                        text=frame_df['公司'],
+                        textposition='inside',
+                        insidetextanchor='middle',
+                        marker=dict(
+                            color=frame_colors,
+                            opacity=[0.5 if c != '兆豐金' else 1.0 for c in frame_df['公司']]
+                        ),
+                        textfont={'color':'white', 'size':16}
+                    )],
+                    layout=go.Layout(annotations=annotations)
+                ))
+            
+            fig.frames = frames
+
+            # --- Create and configure the slider ---
+            sliders = [dict(
+                active=0,
+                currentvalue={"prefix": "年度: ", "font": {"size": 25}},
+                pad={"t": 50},
+                steps=[dict(
+                    label=str(year),
+                    method="animate",
+                    args=[[str(year)], dict(
+                        mode="immediate",
+                        frame=dict(duration=animation_speed, redraw=True),
+                        transition=dict(duration=animation_speed)
+                    )]
+                ) for year in years]
+            )]
+
+            # --- Update the main layout ---
+            fig.update_layout(
+                title='歷年走勢BAR圖 (動態排序)',
+                height=1000,
+                margin=dict(l=100),
+                bargap=bar_gap_roe,
+                yaxis=dict(autorange="reversed", showticklabels=False),
+                updatemenus=[dict(
+                    type="buttons",
+                    showactive=False,
+                    buttons=[dict(
+                        label="Play",
+                        method="animate",
+                        args=[None, dict(
+                            frame=dict(duration=animation_speed, redraw=True),
+                            fromcurrent=True,
+                            transition=dict(duration=animation_speed, easing="linear")
+                        )]
+                    ), dict(
+                        label="Pause",
+                        method="animate",
+                        args=[[None], dict(
+                            mode="immediate"
+                        )]
+                    )]
+                )],
+                sliders=sliders
             )
-            fig_roe_dynamic.update_traces(textposition='inside',outsidetextfont=dict(size=12))
-            # Sort bars within each frame by ROE
-            fig_roe_dynamic.update_layout(
-                yaxis={'categoryorder':'total ascending'},
-                bargap=bar_gap_roe, # Adjust gap between bars to make them appear thicker
-                sliders=[dict(
-                    steps=[], # This will be populated by Plotly Express
-                    active=0,
-                    currentvalue={"font": {"size": 30}, "prefix": "年度: ", "visible": True}, # Make current year prominent
-                    pad={"t": 100}, # Add padding to the top
-                    font={"size": 20} # Make tick labels larger
-                )]
-            )
+            
+            # Set initial annotations
+            fig.update_layout(annotations=frames[0].layout.annotations)
 
-            # Apply animation speed
-            fig_roe_dynamic.layout.updatemenus[0].buttons[0].args[1]['frame']['duration'] = animation_speed
-            fig_roe_dynamic.layout.updatemenus[0].buttons[0].args[1]['transition']['duration'] = animation_speed
-
-            st.plotly_chart(fig_roe_dynamic, use_container_width=True)
-
-            html_bytes_roe_dynamic = fig_roe_dynamic.to_html(include_plotlyjs='cdn').encode('utf-8')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add download button back
+            html_bytes_roe_dynamic = fig.to_html(include_plotlyjs='cdn').encode('utf-8')
             st.download_button(
                 "下載歷年走勢圖(HTML)",
                 data=html_bytes_roe_dynamic,
@@ -1007,12 +1161,9 @@ with tab1:
                 mime="text/html",
                 key="dl_roe_dynamic_chart"
             )
-            # --- END OF BAR CHART BLOCK ---
+            # --- END OF REBUILT BAR CHART BLOCK ---
 
     except FileNotFoundError:
         st.error("找不到Dynamic.xlsx檔案，請確認檔案是否存在於相同目錄.\n")
     except Exception as e:
         st.error(f"讀取或處理Dynamic.xlsx時發生錯誤: {e}\n")
-
-
-
