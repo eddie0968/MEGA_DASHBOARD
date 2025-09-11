@@ -118,7 +118,7 @@ def load_dynamic2_data(file_path):
     except FileNotFoundError:
         return None, []
 
-st.set_page_config(page_title="兆豐金控業務視覺化儀表板", page_icon="logos/兆豐金.jfif", layout="wide")
+st.set_page_config(page_title="兆豐金控業務視覺化儀表板", page_icon="兆豐金.jfif", layout="wide")
 SUBSIDIARY_GROUPS = {
     '銀行': [
         '消金貸款市占率', '信用卡流通卡市占率', '信用卡消費市占率',
